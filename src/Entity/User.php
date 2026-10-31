@@ -1,8 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Entity;
 
 use App\Repository\UserRepository;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
@@ -27,10 +31,26 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     private array $roles = [];
 
     /**
-     * @var string The hashed password
+     * @var string|null The hashed password
      */
     #[ORM\Column]
     private ?string $password = null;
+
+    /**
+     * @var Collection<int, Vault>
+     */
+    #[ORM\OneToMany(
+        targetEntity: Vault::class,
+        mappedBy: 'owner',
+        cascade: ['persist', 'remove'],
+        orphanRemoval: true,
+    )]
+    private Collection $vaults;
+
+    public function __construct()
+    {
+        $this->vaults = new ArrayCollection();
+    }
 
     public function getId(): ?int
     {
@@ -68,7 +88,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         // guarantee every user at least has ROLE_USER
         $roles[] = 'ROLE_USER';
 
-        return array_unique($roles);
+        return array_values(array_unique($roles));
     }
 
     /**
@@ -97,13 +117,42 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     }
 
     /**
+     * @return Collection<int, Vault>
+     */
+    public function getVaults(): Collection
+    {
+        return $this->vaults;
+    }
+
+    public function addVault(Vault $vault): static
+    {
+        if (!$this->vaults->contains($vault)) {
+            $this->vaults->add($vault);
+            $vault->setOwner($this);
+        }
+
+        return $this;
+    }
+
+    public function removeVault(Vault $vault): static
+    {
+        if ($this->vaults->removeElement($vault)) {
+            if ($vault->getOwner() === $this) {
+                $vault->setOwner(null);
+            }
+        }
+
+        return $this;
+    }
+
+    /**
      * Ensure the session doesn't contain actual password hashes by CRC32C-hashing them, as supported since Symfony 7.3.
      */
     public function __serialize(): array
     {
         $data = (array) $this;
-        $data["\0" . self::class . "\0password"] = hash('crc32c', $this->password);
-        
+        $data["\0" . self::class . "\0password"] = hash('crc32c', (string) $this->password);
+
         return $data;
     }
 }
