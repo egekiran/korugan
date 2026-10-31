@@ -21,3 +21,18 @@ services:
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
+
+    App\Service\Security\SodiumEncryptionService:
+        arguments:
+            $vaultEncryptionKey: '%env(VAULT_ENCRYPTION_KEY)%'
+
+    # Bind the interface to the Libsodium implementation
+    App\Service\Security\EncryptionServiceInterface: '@App\Service\Security\SodiumEncryptionService'
+
+when@test:
+    services:
+        App\Service\Security\EncryptionServiceInterface:
+            alias: App\Service\Security\SodiumEncryptionService
+            public: true
+
+
