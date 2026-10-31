@@ -1,0 +1,13 @@
+framework:
+    rate_limiter:
+        auth_limiter:
+            policy: 'sliding_window'
+            limit: 5
+            interval: '15 minutes'
+        reveal_limiter:
+            policy: 'token_bucket'
+            limit: 10
+            rate:
+                interval: '1 minute'
+                amount: 10
+

@@ -29,6 +29,11 @@ services:
     # Bind the interface to the Libsodium implementation
     App\Service\Security\EncryptionServiceInterface: '@App\Service\Security\SodiumEncryptionService'
 
+    # Rate limiter factory bindings
+    Symfony\Component\RateLimiter\RateLimiterFactory $authLimiter: '@limiter.auth_limiter'
+    Symfony\Component\RateLimiter\RateLimiterFactory $revealLimiter: '@limiter.reveal_limiter'
+
+
 when@test:
     services:
         _defaults:

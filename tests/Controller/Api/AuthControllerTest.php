@@ -20,11 +20,16 @@ final class AuthControllerTest extends WebTestCase
     {
         $this->client = static::createClient();
         $this->entityManager = static::getContainer()->get(EntityManagerInterface::class);
+
+        if (static::getContainer()->has('cache.rate_limiter')) {
+            static::getContainer()->get('cache.rate_limiter')->clear();
+        }
     }
 
     public function testRegisterUserSuccessfullyAndRejectsDuplicateEmail(): void
     {
         $uniqueEmail = 'new_user_' . uniqid() . '@korugan.local';
+        $clientIp = '10.100.1.' . random_int(1, 254);
 
         $payload = json_encode([
             'email' => $uniqueEmail,
@@ -34,6 +39,7 @@ final class AuthControllerTest extends WebTestCase
         // 1. Successful registration -> 201 Created
         $this->client->request('POST', '/api/auth/register', [], [], [
             'CONTENT_TYPE' => 'application/json',
+            'REMOTE_ADDR' => $clientIp,
         ], $payload);
 
         self::assertResponseStatusCodeSame(Response::HTTP_CREATED);
@@ -45,6 +51,7 @@ final class AuthControllerTest extends WebTestCase
         // 2. Duplicate registration attempt -> 409 Conflict
         $this->client->request('POST', '/api/auth/register', [], [], [
             'CONTENT_TYPE' => 'application/json',
+            'REMOTE_ADDR' => $clientIp,
         ], $payload);
 
         self::assertResponseStatusCodeSame(Response::HTTP_CONFLICT);
@@ -98,6 +105,7 @@ final class AuthControllerTest extends WebTestCase
 
         $this->client->request('POST', '/api/auth/2fa/enable', [], [], [
             'CONTENT_TYPE' => 'application/json',
+            'REMOTE_ADDR' => '10.50.0.1',
         ], $invalidPayload);
 
         self::assertResponseStatusCodeSame(Response::HTTP_BAD_REQUEST);
@@ -111,6 +119,7 @@ final class AuthControllerTest extends WebTestCase
 
         $this->client->request('POST', '/api/auth/2fa/enable', [], [], [
             'CONTENT_TYPE' => 'application/json',
+            'REMOTE_ADDR' => '10.50.0.1',
         ], $validPayload);
 
         self::assertResponseIsSuccessful();
@@ -131,6 +140,7 @@ final class AuthControllerTest extends WebTestCase
         $invalidDisablePayload = json_encode(['code' => '000000'], \JSON_THROW_ON_ERROR);
         $this->client->request('POST', '/api/auth/2fa/disable', [], [], [
             'CONTENT_TYPE' => 'application/json',
+            'REMOTE_ADDR' => '10.50.0.2',
         ], $invalidDisablePayload);
 
         self::assertResponseStatusCodeSame(Response::HTTP_BAD_REQUEST);
@@ -141,6 +151,7 @@ final class AuthControllerTest extends WebTestCase
 
         $this->client->request('POST', '/api/auth/2fa/disable', [], [], [
             'CONTENT_TYPE' => 'application/json',
+            'REMOTE_ADDR' => '10.50.0.2',
         ], $validDisablePayload);
 
         self::assertResponseIsSuccessful();

@@ -18,6 +18,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\CurrentUser;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
@@ -31,6 +32,7 @@ final class CredentialController extends AbstractController
 {
     public function __construct(
         private readonly CredentialManagerService $credentialManagerService,
+        private readonly RateLimiterFactory $revealLimiter,
     ) {
     }
 
@@ -108,6 +110,19 @@ final class CredentialController extends AbstractController
     ): JsonResponse {
         $this->denyAccessUnlessGranted(CredentialVoter::REVEAL_SECRET, $credential);
 
+        $limiter = $this->revealLimiter->create($user->getUserIdentifier());
+        $limit = $limiter->consume();
+
+        if (!$limit->isAccepted()) {
+            $retryAfterSeconds = max(1, $limit->getRetryAfter()->getTimestamp() - time());
+
+            return $this->json(
+                ['error' => 'Too many requests. Please try again later.'],
+                Response::HTTP_TOO_MANY_REQUESTS,
+                ['Retry-After' => (string) $retryAfterSeconds],
+            );
+        }
+
         $plainPassword = $this->credentialManagerService->revealSecret(
             credential: $credential,
             actor: $user,
@@ -133,4 +148,3 @@ final class CredentialController extends AbstractController
         ];
     }
 }
-

@@ -13,9 +13,11 @@ use App\Service\Security\TotpManagerService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\CurrentUser;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
@@ -31,12 +33,20 @@ final class AuthController extends AbstractController
         private readonly EntityManagerInterface $entityManager,
         private readonly UserPasswordHasherInterface $passwordHasher,
         private readonly TotpManagerService $totpManagerService,
+        private readonly RateLimiterFactory $authLimiter,
     ) {
     }
 
     #[Route('/register', name: 'register', methods: ['POST'])]
-    public function register(#[MapRequestPayload] RegisterRequestDto $dto): JsonResponse
-    {
+    public function register(
+        #[MapRequestPayload] RegisterRequestDto $dto,
+        Request $request,
+    ): JsonResponse {
+        $rateLimitResponse = $this->checkRateLimit($request->getClientIp());
+        if (null !== $rateLimitResponse) {
+            return $rateLimitResponse;
+        }
+
         $normalizedEmail = mb_strtolower(trim($dto->email));
 
         if (null !== $this->userRepository->findOneBy(['email' => $normalizedEmail])) {
@@ -78,7 +88,13 @@ final class AuthController extends AbstractController
     public function enable2fa(
         #[CurrentUser] User $user,
         #[MapRequestPayload] EnableTotpRequestDto $dto,
+        Request $request,
     ): JsonResponse {
+        $rateLimitResponse = $this->checkRateLimit($request->getClientIp());
+        if (null !== $rateLimitResponse) {
+            return $rateLimitResponse;
+        }
+
         $enabled = $this->totpManagerService->enableTotp($user, $dto->secret, $dto->code);
 
         if (!$enabled) {
@@ -99,7 +115,13 @@ final class AuthController extends AbstractController
     public function disable2fa(
         #[CurrentUser] User $user,
         #[MapRequestPayload] VerifyTotpRequestDto $dto,
+        Request $request,
     ): JsonResponse {
+        $rateLimitResponse = $this->checkRateLimit($request->getClientIp());
+        if (null !== $rateLimitResponse) {
+            return $rateLimitResponse;
+        }
+
         if (!$user->isTotpEnabled() || !$this->totpManagerService->verifyCode($user, $dto->code)) {
             return $this->json(
                 ['error' => 'Invalid verification code.'],
@@ -114,5 +136,22 @@ final class AuthController extends AbstractController
             Response::HTTP_OK,
         );
     }
-}
 
+    private function checkRateLimit(?string $clientIp): ?JsonResponse
+    {
+        $limiter = $this->authLimiter->create($clientIp ?? '127.0.0.1');
+        $limit = $limiter->consume();
+
+        if (!$limit->isAccepted()) {
+            $retryAfterSeconds = max(1, $limit->getRetryAfter()->getTimestamp() - time());
+
+            return $this->json(
+                ['error' => 'Too many requests. Please try again later.'],
+                Response::HTTP_TOO_MANY_REQUESTS,
+                ['Retry-After' => (string) $retryAfterSeconds],
+            );
+        }
+
+        return null;
+    }
+}
