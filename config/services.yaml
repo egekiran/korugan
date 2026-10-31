@@ -31,12 +31,14 @@ services:
 
 when@test:
     services:
+        _defaults:
+            autowire: true
+            autoconfigure: true
+
         App\Service\Security\EncryptionServiceInterface:
             alias: App\Service\Security\SodiumEncryptionService
             public: true
 
-        App\Service\Security\TotpManagerService:
-            public: true
 
 
 

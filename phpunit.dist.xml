@@ -15,6 +15,8 @@
         <ini name="error_reporting" value="-1" />
         <server name="APP_ENV" value="test" force="true" />
         <server name="SHELL_VERBOSITY" value="-1" />
+        <server name="DATABASE_URL" value="postgresql://postgres:12341234%40@127.0.0.1:5432/korugan?serverVersion=16&amp;charset=utf8" force="true" />
+        <server name="VAULT_ENCRYPTION_KEY" value="dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHQ=" force="true" />
     </php>
 
     <testsuites>
