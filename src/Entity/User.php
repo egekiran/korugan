@@ -4,18 +4,29 @@ declare(strict_types=1);
 
 namespace App\Entity;
 
+use App\EventListener\UserEncryptionListener;
 use App\Repository\UserRepository;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
+use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
+use Scheb\TwoFactorBundle\Model\Totp\TotpConfiguration;
+use Scheb\TwoFactorBundle\Model\Totp\TotpConfigurationInterface;
+use Scheb\TwoFactorBundle\Model\Totp\TwoFactorInterface;
+use SensitiveParameter;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
 
 #[ORM\Entity(repositoryClass: UserRepository::class)]
+#[ORM\EntityListeners([UserEncryptionListener::class])]
 #[ORM\Table(name: '`user`')]
 #[ORM\UniqueConstraint(name: 'UNIQ_IDENTIFIER_EMAIL', fields: ['email'])]
-class User implements UserInterface, PasswordAuthenticatedUserInterface
+class User implements UserInterface, PasswordAuthenticatedUserInterface, TwoFactorInterface
 {
+    public const string TOTP_ISSUER = 'Korugan';
+    public const int TOTP_PERIOD = 30;
+    public const int TOTP_DIGITS = 6;
+
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
@@ -35,6 +46,20 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      */
     #[ORM\Column]
     private ?string $password = null;
+
+    /**
+     * Base64-encoded encrypted TOTP secret stored at rest.
+     */
+    #[ORM\Column(type: Types::STRING, length: 255, nullable: true)]
+    private ?string $totpSecret = null;
+
+    /**
+     * Transient plain-text Base32 TOTP secret (never persisted to the database).
+     */
+    private ?string $plainTotpSecret = null;
+
+    #[ORM\Column(type: Types::BOOLEAN, options: ['default' => false])]
+    private bool $isTotpEnabled = false;
 
     /**
      * @var Collection<int, Vault>
@@ -109,11 +134,72 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->password;
     }
 
-    public function setPassword(string $password): static
+    public function setPassword(#[SensitiveParameter] string $password): static
     {
         $this->password = $password;
 
         return $this;
+    }
+
+    public function getTotpSecret(): ?string
+    {
+        return $this->totpSecret;
+    }
+
+    public function setTotpSecret(#[SensitiveParameter] ?string $totpSecret): static
+    {
+        $this->totpSecret = $totpSecret;
+
+        return $this;
+    }
+
+    public function getPlainTotpSecret(): ?string
+    {
+        return $this->plainTotpSecret;
+    }
+
+    public function setPlainTotpSecret(#[SensitiveParameter] ?string $plainTotpSecret): static
+    {
+        $this->plainTotpSecret = $plainTotpSecret;
+
+        return $this;
+    }
+
+    public function isTotpEnabled(): bool
+    {
+        return $this->isTotpEnabled;
+    }
+
+    public function setIsTotpEnabled(bool $isTotpEnabled): static
+    {
+        $this->isTotpEnabled = $isTotpEnabled;
+
+        return $this;
+    }
+
+    public function isTotpAuthenticationEnabled(): bool
+    {
+        return $this->isTotpEnabled && null !== $this->totpSecret;
+    }
+
+    public function getTotpAuthenticationUsername(): string
+    {
+        return (string) $this->email;
+    }
+
+    public function getTotpAuthenticationConfiguration(): ?TotpConfigurationInterface
+    {
+        $secret = $this->plainTotpSecret ?? $this->totpSecret;
+        if (null === $secret || '' === $secret) {
+            return null;
+        }
+
+        return new TotpConfiguration(
+            $secret,
+            TotpConfiguration::ALGORITHM_SHA1,
+            self::TOTP_PERIOD,
+            self::TOTP_DIGITS,
+        );
     }
 
     /**
@@ -146,12 +232,13 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     }
 
     /**
-     * Ensure the session doesn't contain actual password hashes by CRC32C-hashing them, as supported since Symfony 7.3.
+     * Ensure the session doesn't contain actual password hashes or plain TOTP secrets.
      */
     public function __serialize(): array
     {
         $data = (array) $this;
         $data["\0" . self::class . "\0password"] = hash('crc32c', (string) $this->password);
+        unset($data["\0" . self::class . "\0plainTotpSecret"]);
 
         return $data;
     }

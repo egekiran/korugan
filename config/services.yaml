@@ -35,4 +35,8 @@ when@test:
             alias: App\Service\Security\SodiumEncryptionService
             public: true
 
+        App\Service\Security\TotpManagerService:
+            public: true
+
+
 
